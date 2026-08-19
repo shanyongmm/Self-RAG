@@ -1,0 +1,31 @@
+{
+  "experiment": "20260814-205650",
+  "dataset": "evaluation/datasets/qa_eval.jsonl",
+  "case_count": 20,
+  "modes": {
+    "naive_rag": {
+      "avg_final_context_precision": 0.3333333333333333,
+      "avg_invalid_retrieval_rate": 0.6666666666666667,
+      "answer_accuracy": 0.75,
+      "avg_citation_accuracy": 0.85,
+      "avg_latency_seconds": 9.215964145000545,
+      "avg_estimated_tokens": 494.2
+    },
+    "self_rag": {
+      "avg_final_context_precision": 0.875,
+      "avg_invalid_retrieval_rate": 0.125,
+      "answer_accuracy": 0.85,
+      "avg_citation_accuracy": 0.875,
+      "avg_latency_seconds": 18.15307638500126,
+      "avg_estimated_tokens": 237.6
+    }
+  },
+  "comparison": {
+    "invalid_retrieval_rate_reduction_pct": 81.25,
+    "final_context_precision_delta": 0.5416666666666667,
+    "answer_accuracy_delta": 0.1,
+    "citation_accuracy_delta": 0.025,
+    "latency_delta_seconds": 8.937112240000715,
+    "estimated_token_reduction_pct": 51.92
+  }
+}

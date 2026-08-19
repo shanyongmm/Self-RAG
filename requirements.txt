@@ -1,0 +1,14 @@
+langgraph
+langchain
+langchain-core
+langchain-community
+langchain-text-splitters
+langchain-openai
+langgraph-checkpoint-postgres
+psycopg[binary,pool]
+pymilvus
+python-dotenv
+pydantic
+dashscope
+fastapi
+uvicorn

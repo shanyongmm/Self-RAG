@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Self RAG Chat</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+        background: #f5f6f8;
+        color: #15171a;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+      }
+
+      .chat {
+        display: grid;
+        grid-template-rows: 1fr auto;
+        min-height: 100vh;
+        max-width: 860px;
+        margin: 0 auto;
+        padding: 16px;
+        gap: 12px;
+      }
+
+      .messages {
+        overflow-y: auto;
+        padding: 8px 2px;
+      }
+
+      .message {
+        width: fit-content;
+        max-width: min(74ch, 86%);
+        margin: 10px 0;
+        padding: 10px 12px;
+        border: 1px solid #dde1e7;
+        border-radius: 8px;
+        background: #ffffff;
+        line-height: 1.55;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .message.user {
+        margin-left: auto;
+        border-color: #1d4ed8;
+        background: #1d4ed8;
+        color: #ffffff;
+      }
+
+      .message.assistant {
+        width: min(74ch, 86%);
+      }
+
+      .answer-text {
+        margin-bottom: 10px;
+      }
+
+      .meta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin: 6px 0 4px;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 24px;
+        padding: 2px 8px;
+        border: 1px solid #d8dde6;
+        border-radius: 999px;
+        background: #f8fafc;
+        color: #384252;
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      details {
+        margin-top: 8px;
+        border-top: 1px solid #edf0f4;
+        padding-top: 8px;
+      }
+
+      summary {
+        cursor: pointer;
+        color: #334155;
+        font-size: 13px;
+        font-weight: 650;
+      }
+
+      .source-list,
+      .trace-list {
+        display: grid;
+        gap: 10px;
+        margin-top: 8px;
+      }
+
+      .source-item,
+      .trace-step {
+        border-left: 3px solid #cbd5e1;
+        padding-left: 10px;
+      }
+
+      .source-title,
+      .trace-title {
+        color: #1f2937;
+        font-size: 13px;
+        font-weight: 650;
+      }
+
+      .snippet,
+      .trace-body {
+        margin-top: 4px;
+        color: #475569;
+        font-size: 13px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+      }
+
+      .trace-kv {
+        margin: 2px 0;
+      }
+
+      .muted {
+        color: #64748b;
+      }
+
+      .composer {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px;
+        padding: 10px;
+        border: 1px solid #d8dde6;
+        border-radius: 8px;
+        background: #ffffff;
+      }
+
+      textarea {
+        min-height: 44px;
+        max-height: 160px;
+        resize: vertical;
+        border: 0;
+        outline: 0;
+        font: inherit;
+        line-height: 1.45;
+      }
+
+      button {
+        width: 72px;
+        height: 44px;
+        border: 0;
+        border-radius: 8px;
+        background: #15171a;
+        color: #ffffff;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="chat">
+      <section class="messages" id="messages" aria-live="polite"></section>
+      <form class="composer" id="chat-form">
+        <textarea
+          id="question"
+          name="question"
+          placeholder="输入问题"
+          autocomplete="off"
+          required
+        ></textarea>
+        <button id="send" type="submit">发送</button>
+      </form>
+    </main>
+
+    <script>
+      const form = document.querySelector("#chat-form");
+      const input = document.querySelector("#question");
+      const send = document.querySelector("#send");
+      const messages = document.querySelector("#messages");
+      const threadIdKey = "self-rag-thread-id";
+      const threadId =
+        localStorage.getItem(threadIdKey) ||
+        (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`);
+      localStorage.setItem(threadIdKey, threadId);
+
+      function addMessage(text, role) {
+        const item = document.createElement("div");
+        item.className = `message ${role}`;
+        item.textContent = text;
+        messages.appendChild(item);
+        messages.scrollTop = messages.scrollHeight;
+        return item;
+      }
+
+      function renderAssistantMessage(item, data) {
+        item.replaceChildren();
+
+        const answer = document.createElement("div");
+        answer.className = "answer-text";
+        answer.textContent = data.answer || "没有返回答案";
+        item.appendChild(answer);
+
+        const meta = document.createElement("div");
+        meta.className = "meta-row";
+        addPill(meta, data.mode || "self_rag");
+        addPill(meta, `迭代 ${data.retry_count ?? 0}`);
+        addPill(meta, data.is_answerable ? "可回答" : "未确认可回答");
+        if (data.citations?.length) {
+          addPill(meta, `引用 ${data.citations.join(", ")}`);
+        }
+        item.appendChild(meta);
+
+        if (data.sources?.length) {
+          item.appendChild(renderSources("引用来源", data.sources));
+        }
+        if (data.rejected_sources?.length) {
+          item.appendChild(renderSources("被过滤片段", data.rejected_sources));
+        }
+        if (data.trace?.length) {
+          item.appendChild(renderTrace(data.trace));
+        }
+
+        messages.scrollTop = messages.scrollHeight;
+      }
+
+      function addPill(parent, text) {
+        const pill = document.createElement("span");
+        pill.className = "pill";
+        pill.textContent = text;
+        parent.appendChild(pill);
+      }
+
+      function renderSources(title, sources) {
+        const details = document.createElement("details");
+        const summary = document.createElement("summary");
+        summary.textContent = `${title} · ${sources.length}`;
+        details.appendChild(summary);
+
+        const list = document.createElement("div");
+        list.className = "source-list";
+        sources.forEach((source) => {
+          const item = document.createElement("div");
+          item.className = "source-item";
+
+          const heading = document.createElement("div");
+          heading.className = "source-title";
+          heading.textContent = sourceTitle(source);
+          item.appendChild(heading);
+
+          const snippet = document.createElement("div");
+          snippet.className = "snippet";
+          snippet.textContent = truncate(source.text || "", 280);
+          item.appendChild(snippet);
+
+          list.appendChild(item);
+        });
+        details.appendChild(list);
+        return details;
+      }
+
+      function renderTrace(trace) {
+        const details = document.createElement("details");
+        const summary = document.createElement("summary");
+        summary.textContent = `执行轨迹 · ${trace.length} 步`;
+        details.appendChild(summary);
+
+        const list = document.createElement("div");
+        list.className = "trace-list";
+        trace.forEach((step, index) => {
+          const item = document.createElement("div");
+          item.className = "trace-step";
+
+          const heading = document.createElement("div");
+          heading.className = "trace-title";
+          heading.textContent = `${index + 1}. ${stepLabel(step.step)} · 第 ${step.iteration ?? 0} 轮`;
+          item.appendChild(heading);
+
+          const body = document.createElement("div");
+          body.className = "trace-body";
+          traceLines(step).forEach((line) => {
+            const row = document.createElement("div");
+            row.className = "trace-kv";
+            row.textContent = line;
+            body.appendChild(row);
+          });
+          item.appendChild(body);
+
+          list.appendChild(item);
+        });
+        details.appendChild(list);
+        return details;
+      }
+
+      function traceLines(step) {
+        if (step.step === "retrieve") {
+          return [
+            `查询：${step.query || ""}`,
+            `Top-K：${step.top_k ?? ""}`,
+            `召回：${idsFromSources(step.retrieved_sources).join(", ") || "无"}`,
+          ];
+        }
+        if (step.step === "grade") {
+          return [
+            `相关：${step.is_relevant ? "是" : "否"}，置信度：${formatNumber(step.confidence)}`,
+            `理由：${step.reason || ""}`,
+            `保留：${idsFromSources(step.accepted_sources).join(", ") || "无"}`,
+            `过滤：${idsFromSources(step.rejected_sources).join(", ") || "无"}`,
+          ];
+        }
+        if (step.step === "decide") {
+          return [
+            `下一步：${step.next_action || ""}`,
+            `理由：${step.reason || ""}`,
+          ];
+        }
+        if (step.step === "rewrite") {
+          return [
+            `原查询：${step.previous_query || ""}`,
+            `新查询：${step.rewritten_query || ""}`,
+            `理由：${step.reason || ""}`,
+          ];
+        }
+        if (step.step === "generate") {
+          return [
+            `引用：${(step.citations || []).join(", ") || "无"}`,
+            `最终片段：${idsFromSources(step.final_sources).join(", ") || "无"}`,
+            step.missing_info ? `缺失信息：${step.missing_info}` : "缺失信息：无",
+          ];
+        }
+        return Object.entries(step).map(([key, value]) => `${key}：${stringify(value)}`);
+      }
+
+      function sourceTitle(source) {
+        const parts = [];
+        if (source.rank !== undefined && source.rank !== null) {
+          parts.push(`#${source.rank}`);
+        }
+        if (source.chunk_id !== undefined && source.chunk_id !== null) {
+          parts.push(`chunk ${source.chunk_id}`);
+        }
+        if (source.score !== undefined && source.score !== null) {
+          parts.push(`score ${formatNumber(source.score)}`);
+        }
+        return parts.join(" · ") || "来源片段";
+      }
+
+      function idsFromSources(sources = []) {
+        return sources
+          .map((source) => source?.chunk_id)
+          .filter((id) => id !== undefined && id !== null)
+          .map(String);
+      }
+
+      function stepLabel(step) {
+        const labels = {
+          retrieve: "检索",
+          grade: "评分",
+          decide: "决策",
+          rewrite: "改写",
+          generate: "生成",
+        };
+        return labels[step] || step || "步骤";
+      }
+
+      function truncate(text, maxLength) {
+        if (text.length <= maxLength) return text;
+        return `${text.slice(0, maxLength)}...`;
+      }
+
+      function formatNumber(value) {
+        if (typeof value !== "number") return value ?? "";
+        return Number.isInteger(value) ? String(value) : value.toFixed(4);
+      }
+
+      function stringify(value) {
+        if (typeof value === "string") return value;
+        return JSON.stringify(value);
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const question = input.value.trim();
+        if (!question) return;
+
+        addMessage(question, "user");
+        input.value = "";
+        input.focus();
+        send.disabled = true;
+        const pending = addMessage("正在思考...", "assistant");
+
+        try {
+          const response = await fetch("/ask", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ question, thread_id: threadId }),
+          });
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.detail || "请求失败");
+          }
+          renderAssistantMessage(pending, data);
+        } catch (error) {
+          pending.textContent = error.message || "请求失败";
+        } finally {
+          send.disabled = false;
+        }
+      });
+
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          form.requestSubmit();
+        }
+      });
+    </script>
+  </body>
+</html>
