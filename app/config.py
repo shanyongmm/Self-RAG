@@ -29,6 +29,10 @@ class RagConfig(BaseModel):
     llm_base_url: str | None = None
     llm_temperature: float = 0
 
+    mineru_token: str | None = Field(default=None, repr=False)
+    mineru_base_url: str = "https://mineru.net/api/v4"
+    mineru_output_dir: Path
+
     top_k: int = Field(default=3, ge=1, le=50)
     max_retries: int = Field(default=3, ge=0, le=10)
     relevance_threshold: float = Field(default=0.5, ge=0, le=1)
@@ -82,6 +86,10 @@ def get_config() -> RagConfig:
             default="data/raw/customer_service_knowledge_base.txt",
         ),
     )
+    mineru_output_dir = _resolve_path(
+        project_root,
+        _env("MINERU_OUTPUT_DIR", default="data/parsed/mineru"),
+    )
 
     return RagConfig(
         project_root=project_root,
@@ -103,6 +111,12 @@ def get_config() -> RagConfig:
         llm_api_key=_required_env("LLM_API_KEY", "OPENAI_API_KEY"),
         llm_base_url=_env("LLM_BASE_URL", "OPENAI_BASE_URL"),
         llm_temperature=_float_env("LLM_TEMPERATURE", default=0),
+        mineru_token=_env("MINERU_TOKEN", "MINERU_API_KEY"),
+        mineru_base_url=_env(
+            "MINERU_BASE_URL", default="https://mineru.net/api/v4"
+        )
+        or "https://mineru.net/api/v4",
+        mineru_output_dir=mineru_output_dir,
         top_k=_int_env("RAG_TOP_K", "TOP_K", default=3),
         max_retries=_int_env("RAG_MAX_RETRIES", "RAG_MAX_ITERATIONS", default=3),
         relevance_threshold=_float_env("RAG_RELEVANCE_THRESHOLD", default=0.5),

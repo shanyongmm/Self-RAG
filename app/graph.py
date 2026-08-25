@@ -98,6 +98,7 @@ def build_graph(
         )
         is_relevant = bool(relevant_documents)
         relevant_ids = [str(chunk.chunk_id) for chunk in relevant_documents]
+        rerank_scores = _relevance_scores(grade)
         print(
             "[grade] "
             f"is_relevant={is_relevant} relevant_chunk_ids={relevant_ids} "
@@ -117,6 +118,11 @@ def build_graph(
                     "confidence": grade.confidence,
                     "reason": grade.reason,
                     "supporting_chunk_ids": grade.supporting_chunk_ids,
+                    "reranked_chunk_ids": relevant_ids,
+                    "rerank_scores": {
+                        _chunk_id(chunk): rerank_scores.get(_chunk_id(chunk), 0.0)
+                        for chunk in relevant_documents
+                    },
                     "chunk_grades": [
                         _model_dump(chunk_grade)
                         for chunk_grade in grade.chunk_grades
@@ -291,10 +297,11 @@ def _filter_relevant_documents(
     grade: RelevanceGrade,
     threshold: float,
 ) -> tuple[list[RetrievedChunk], list[RetrievedChunk]]:
+    relevance_scores = _relevance_scores(grade)
     relevant_ids = {
-        str(item.chunk_id)
-        for item in grade.chunk_grades
-        if item.is_relevant and item.confidence >= threshold
+        chunk_id
+        for chunk_id, score in relevance_scores.items()
+        if score >= threshold
     }
     if not relevant_ids and grade.is_relevant and grade.confidence >= threshold:
         relevant_ids = {str(chunk_id) for chunk_id in grade.supporting_chunk_ids}
@@ -302,6 +309,16 @@ def _filter_relevant_documents(
     relevant_documents = [
         chunk for chunk in documents if _chunk_id(chunk) in relevant_ids
     ]
+    original_ranks = {
+        _chunk_id(chunk): index
+        for index, chunk in enumerate(documents)
+    }
+    relevant_documents.sort(
+        key=lambda chunk: (
+            -relevance_scores.get(_chunk_id(chunk), grade.confidence),
+            original_ranks.get(_chunk_id(chunk), len(documents)),
+        )
+    )
     rejected_documents = [
         chunk for chunk in documents if _chunk_id(chunk) not in relevant_ids
     ]
@@ -312,3 +329,11 @@ def _chunk_id(chunk: RetrievedChunk) -> str:
     if chunk.chunk_id is not None:
         return str(chunk.chunk_id)
     return f"rank:{chunk.rank}"
+
+
+def _relevance_scores(grade: RelevanceGrade) -> dict[str, float]:
+    return {
+        str(item.chunk_id): item.confidence
+        for item in grade.chunk_grades
+        if item.is_relevant
+    }
