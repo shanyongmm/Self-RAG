@@ -11,6 +11,7 @@ class RetrievedChunk(BaseModel):
     chunk_id: str | int | None = None
     source: str | None = None
     score: float | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
     def from_milvus_hit(cls, hit: dict[str, Any], rank: int) -> RetrievedChunk:
@@ -19,6 +20,7 @@ class RetrievedChunk(BaseModel):
         chunk_id = entity.get("chunk_id", hit.get("id"))
         source = entity.get("source") or hit.get("source")
         score = hit.get("distance", hit.get("score"))
+        metadata = _metadata_from_hit(entity or hit)
 
         return cls(
             rank=rank,
@@ -26,6 +28,7 @@ class RetrievedChunk(BaseModel):
             chunk_id=chunk_id,
             source=str(source) if source is not None else None,
             score=float(score) if score is not None else None,
+            metadata=metadata,
         )
 
     def to_source_dict(self) -> dict[str, Any]:
@@ -35,6 +38,7 @@ class RetrievedChunk(BaseModel):
             "source": self.source,
             "score": self.score,
             "text": self.text,
+            "metadata": self.metadata,
         }
 
 
@@ -86,3 +90,12 @@ class RagGeneration(BaseModel):
         default=None,
         description="如果无法回答，说明缺失的信息；可以回答时为空。",
     )
+
+
+def _metadata_from_hit(entity: dict[str, Any]) -> dict[str, Any]:
+    excluded = {"id", "vector", "text", "chunk_id", "source"}
+    return {
+        key: value
+        for key, value in entity.items()
+        if key not in excluded and value not in (None, "", [])
+    }

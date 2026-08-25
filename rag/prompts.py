@@ -52,17 +52,15 @@ def format_retrieved_chunks(chunks: list[RetrievedChunk]) -> str:
         score = f"{chunk.score:.4f}" if chunk.score is not None else "N/A"
         chunk_id = chunk.chunk_id if chunk.chunk_id is not None else "N/A"
         source = chunk.source or "N/A"
-        formatted.append(
-            "\n".join(
-                [
-                    (
-                        f"[片段 {chunk.rank}] chunk_id={chunk_id} "
-                        f"score={score} source={source}"
-                    ),
-                    chunk.text,
-                ]
+        lines = [
+            (
+                f"[片段 {chunk.rank}] chunk_id={chunk_id} "
+                f"score={score} source={source}"
             )
-        )
+        ]
+        lines.extend(_format_metadata_lines(chunk))
+        lines.extend(["正文：", chunk.text])
+        formatted.append("\n".join(lines))
     return "\n\n".join(formatted)
 
 
@@ -134,3 +132,26 @@ def build_generate_messages(
             ),
         ),
     ]
+
+
+def _format_metadata_lines(chunk: RetrievedChunk) -> list[str]:
+    metadata = chunk.metadata
+    if not metadata:
+        return []
+
+    lines: list[str] = []
+    section_path = metadata.get("section_path_text") or metadata.get("section_path")
+    block_type = metadata.get("block_type")
+    context_before = metadata.get("context_before")
+    context_after = metadata.get("context_after")
+
+    if section_path:
+        lines.append(f"章节路径：{section_path}")
+    if block_type:
+        lines.append(f"内容类型：{block_type}")
+    if context_before:
+        lines.append(f"前文上下文：{context_before}")
+    if context_after:
+        lines.append(f"后文上下文：{context_after}")
+
+    return lines

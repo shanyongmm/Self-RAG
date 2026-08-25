@@ -10,6 +10,17 @@ from app.config import RagConfig, get_config
 from app.schemas import RetrievedChunk
 from rag.embeddings import create_embedding_model
 
+METADATA_OUTPUT_FIELDS = [
+    "block_type",
+    "block_index",
+    "chunk_index",
+    "chunk_count",
+    "section_path_text",
+    "section_title",
+    "context_before",
+    "context_after",
+]
+
 
 class MilvusVectorStore:
     def __init__(
@@ -61,22 +72,22 @@ class MilvusVectorStore:
 
         self.ensure_collection(rebuild=rebuild)
 
-        texts = [chunk.page_content for chunk in chunks]
+        texts = [_embedding_text(chunk) for chunk in chunks]
         vectors = self._embed_documents(texts)
 
         rows = []
         for index, (chunk, vector) in enumerate(zip(chunks, vectors, strict=True)):
             chunk_id = chunk.metadata.get("chunk_id", index)
             source = chunk.metadata.get("source") or str(self.config.knowledge_file)
-            rows.append(
-                {
-                    "id": index,
-                    "vector": vector,
-                    "text": chunk.page_content,
-                    "chunk_id": str(chunk_id),
-                    "source": str(source),
-                }
-            )
+            row = {
+                "id": index,
+                "vector": vector,
+                "text": chunk.page_content,
+                "chunk_id": str(chunk_id),
+                "source": str(source),
+            }
+            row.update(_metadata_for_milvus(chunk.metadata))
+            rows.append(row)
 
         self.client.upsert(collection_name=self.config.collection_name, data=rows)
         self.client.flush(collection_name=self.config.collection_name)
@@ -98,7 +109,7 @@ class MilvusVectorStore:
             collection_name=self.config.collection_name,
             data=[query_vector],
             limit=limit,
-            output_fields=["text", "chunk_id", "source"],
+            output_fields=["text", "chunk_id", "source", *METADATA_OUTPUT_FIELDS],
         )
         hits = result_sets[0] if result_sets else []
         return [
@@ -106,6 +117,28 @@ class MilvusVectorStore:
             for rank, hit in enumerate(hits, start=1)
             if (hit.get("entity") or {}).get("text") or hit.get("text")
         ]
+
+
+def _embedding_text(chunk: Document) -> str:
+    value = chunk.metadata.get("embedding_text")
+    if isinstance(value, str) and value.strip():
+        return value
+    return chunk.page_content
+
+
+def _metadata_for_milvus(metadata: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key in METADATA_OUTPUT_FIELDS:
+        value = metadata.get(key)
+        if value in (None, "", []):
+            continue
+        if isinstance(value, (str, int, float, bool)):
+            result[key] = value
+        elif isinstance(value, list):
+            result[key] = " > ".join(str(item) for item in value)
+        else:
+            result[key] = str(value)
+    return result
 
 
 def _batched(items: Sequence[str], batch_size: int) -> Iterable[list[str]]:
