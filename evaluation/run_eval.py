@@ -12,15 +12,23 @@ from app.rag_starter import RagStarter
 from evaluation.metrics import score_eval_result, summarize_scores
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DATASET = PROJECT_ROOT / "evaluation" / "datasets" / "qa_eval.jsonl"
+DEFAULT_DATASET = PROJECT_ROOT / "evaluation" / "datasets" / "qa_eval_medical.jsonl"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "evaluation" / "results"
+
+
+def _default_dataset() -> Path:
+    """优先使用 gold_passage 解析出的临床评测集；不存在则回退旧数据集。"""
+    clinical = PROJECT_ROOT / "evaluation" / "datasets" / "qa_eval_clinical.jsonl"
+    if clinical.is_file():
+        return clinical
+    return DEFAULT_DATASET
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Compare Self/Corrective RAG with a Naive RAG baseline."
     )
-    parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
+    parser.add_argument("--dataset", type=Path, default=_default_dataset())
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument(
@@ -70,6 +78,26 @@ def main() -> int:
     print(f"Evaluation report written to: {report_path}")
     print(json.dumps(report["modes"], ensure_ascii=False, indent=2))
     print(json.dumps(report["comparison"], ensure_ascii=False, indent=2))
+
+    modes = report.get("modes") or {}
+    if "naive_rag" in modes and "self_rag" in modes:
+        naive = modes["naive_rag"]
+        self_rag = modes["self_rag"]
+        print("\n==== 成本-效果一览（越低越省） ====")
+        for key, title in (
+            ("tokens_per_correct_answer", "每正确回答估算 token"),
+            ("avg_generation_context_tokens", "平均生成上下文 token"),
+        ):
+            print(
+                f"{title}: naive={naive.get(key)}  self_rag={self_rag.get(key)}"
+            )
+        for key, title in (
+            ("tokens_per_correct_answer_reduction_pct", "每正确回答 token 降幅 %"),
+            ("generation_context_token_reduction_pct", "生成上下文 token 降幅 %"),
+        ):
+            value = (report.get("comparison") or {}).get(key)
+            if value is not None:
+                print(f"{title}: {value:.2f}%")
     return 0
 
 
@@ -187,3 +215,4 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

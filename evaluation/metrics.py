@@ -91,9 +91,22 @@ def _summarize_mode(records: list[dict[str, Any]]) -> dict[str, Any]:
     total_output_tokens = sum(
         int(record["estimated_output_tokens"]) for record in records
     )
+    # 成本-效果指标只统计无错误记录，避免把异常归零的 token 拉低平均值。
+    clean = [record for record in records if not record.get("error")]
+    clean_total_input = sum(
+        int(record["estimated_input_tokens"]) for record in clean
+    )
+    clean_total_output = sum(
+        int(record["estimated_output_tokens"]) for record in clean
+    )
+    clean_count = len(clean)
+    correct_count = sum(
+        1 for record in clean if record.get("answer_correct") is True
+    )
     return {
         "case_count": len(records),
         "error_count": sum(1 for record in records if record.get("error")),
+        "correct_count": correct_count,
         "avg_raw_precision_at_k": _avg(records, "raw_precision_at_k"),
         "avg_final_context_precision": _avg(records, "final_context_precision"),
         "avg_invalid_retrieval_rate": _avg(records, "invalid_retrieval_rate"),
@@ -103,10 +116,25 @@ def _summarize_mode(records: list[dict[str, Any]]) -> dict[str, Any]:
         "avg_citation_recall": _avg(records, "citation_recall"),
         "avg_latency_seconds": _avg(records, "latency_seconds"),
         "avg_retry_count": _avg(records, "retry_count"),
+        # —— 成本-效果（Cost-Effectiveness）——
+        # generation context ≈ 最终生成阶段喂给 LLM 的证据文本（q + final sources），
+        # 是过滤/去噪后真正进入答案模型的上下文，也是两个 pipeline 可比的证据载荷。
+        "total_generation_context_tokens": clean_total_input,
+        "total_output_tokens": clean_total_output,
         "total_estimated_tokens": total_input_tokens + total_output_tokens,
         "avg_estimated_tokens": _safe_divide(
             total_input_tokens + total_output_tokens,
             len(records),
+        ),
+        "avg_generation_context_tokens": _safe_divide(
+            clean_total_input,
+            clean_count,
+        ),
+        "avg_output_tokens": _safe_divide(clean_total_output, clean_count),
+        # 每得到一个正确答案平均消耗的估算 token（越低越省）。0 正确时记 None。
+        "tokens_per_correct_answer": _safe_divide(
+            clean_total_input + clean_total_output,
+            correct_count,
         ),
     }
 
@@ -148,6 +176,26 @@ def _compare_modes(
         "estimated_token_delta": _delta(
             naive.get("avg_estimated_tokens"),
             self_rag.get("avg_estimated_tokens"),
+        ),
+        # —— 成本-效果对比（headline）——
+        # 平均每个正确答案消耗的估算 token 降幅（核心指标，负值越省）。
+        "tokens_per_correct_answer_reduction_pct": _relative_reduction(
+            naive.get("tokens_per_correct_answer"),
+            self_rag.get("tokens_per_correct_answer"),
+        ),
+        # 生成阶段上下文 token 平均降幅（反映 grade/filter 去掉噪音后的证据瘦身）。
+        "generation_context_token_reduction_pct": _relative_reduction(
+            naive.get("avg_generation_context_tokens"),
+            self_rag.get("avg_generation_context_tokens"),
+        ),
+        # 总 token 平均降幅（含答案输出）。
+        "total_token_reduction_pct": _relative_reduction(
+            naive.get("avg_estimated_tokens"),
+            self_rag.get("avg_estimated_tokens"),
+        ),
+        "correct_answer_count_delta": _delta(
+            naive.get("correct_count"),
+            self_rag.get("correct_count"),
         ),
     }
 

@@ -1,10 +1,24 @@
+# 基础设施编排：仅启动 Milvus（含 etcd、MinIO）与 PostgreSQL。
+# 四个容器位于同一桥接网络 self_rag_net，通过服务名互相访问；
+# 仅对外暴露本机 RAG 应用需要的端口（Milvus 19530、PostgreSQL 5432）。
+#
+# RAG 应用本身不在容器里跑，请在 PyCharm / 虚拟环境中本地运行
+# （uvicorn main:app --reload），连接 .env 里的 localhost 地址即可。
+#
+# 镜像固定为本地已缓存的版本，避免依赖 Docker Hub（当前网络不可达）。
+
+name: self_rag
+
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16
+    container_name: self_rag-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-self_rag}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-self_rag}
       POSTGRES_DB: ${POSTGRES_DB:-self_rag}
+    ports:
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -18,9 +32,12 @@ services:
       retries: 20
       start_period: 10s
     restart: unless-stopped
+    networks:
+      - self_rag_net
 
   etcd:
     image: quay.io/coreos/etcd:v3.5.25
+    container_name: self_rag-etcd
     environment:
       ETCD_AUTO_COMPACTION_MODE: revision
       ETCD_AUTO_COMPACTION_RETENTION: "1000"
@@ -40,9 +57,12 @@ services:
       retries: 20
       start_period: 10s
     restart: unless-stopped
+    networks:
+      - self_rag_net
 
   minio:
     image: minio/minio:RELEASE.2024-05-28T17-19-04Z
+    container_name: self_rag-minio
     environment:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
@@ -56,9 +76,12 @@ services:
       retries: 20
       start_period: 10s
     restart: unless-stopped
+    networks:
+      - self_rag_net
 
   milvus:
-    image: milvusdb/milvus:v2.6.22
+    image: milvusdb/milvus:v2.5.27
+    container_name: self_rag-milvus
     command: ["milvus", "run", "standalone"]
     environment:
       ETCD_ENDPOINTS: etcd:2379
@@ -74,7 +97,6 @@ services:
         condition: service_healthy
     ports:
       - "19530:19530"
-      - "9091:9091"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
       interval: 10s
@@ -82,43 +104,16 @@ services:
       retries: 30
       start_period: 90s
     restart: unless-stopped
-
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    env_file:
-      - .env
-    environment:
-      MILVUS_URL: http://milvus:19530
-      DB_NAME: ${DB_NAME:-self_rag}
-      COL_NAME: ${COL_NAME:-docs}
-      POSTGRES_URI: postgresql://${POSTGRES_USER:-self_rag}:${POSTGRES_PASSWORD:-self_rag}@postgres:5432/${POSTGRES_DB:-self_rag}?sslmode=disable
-      KNOWLEDGE_FILE: /app/data/raw/customer_service_knowledge_base.txt
-      AUTO_INGEST: ${AUTO_INGEST:-true}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      milvus:
-        condition: service_healthy
-    ports:
-      - "8001:8001"
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=3)",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-      start_period: 120s
-    restart: on-failure
+    networks:
+      - self_rag_net
 
 volumes:
   postgres_data:
   etcd_data:
   minio_data:
   milvus_data:
+
+networks:
+  self_rag_net:
+    name: self_rag_net
+    driver: bridge

@@ -4,16 +4,23 @@ import argparse
 from pathlib import Path
 from typing import Any
 
-from app.config import get_config
+from app.config import RagConfig, get_config
 from rag.embeddings import create_embedding_model
 from rag.loader import load_documents_from_path
+from rag.partitions import registry_from_config
 from rag.splitter import split_documents
 from rag.vectorstore import MilvusVectorStore
 
 
 def ingest(rebuild: bool = False, source: str | Path | None = None) -> dict[str, Any]:
     config = get_config()
-    knowledge_source = Path(source) if source else config.knowledge_file
+    if registry_from_config(config) is not None:
+        raise RuntimeError(
+            "Partition mode is enabled (PARTITION_CONFIG is set in .env). "
+            "Run `python -m scripts.ingest_partitioned` instead; this flat "
+            "ingest script only serves the non-partitioned pipeline."
+        )
+    knowledge_source = Path(source) if source else _default_ingest_source(config)
     if not knowledge_source.is_absolute():
         knowledge_source = config.project_root / knowledge_source
 
@@ -38,7 +45,8 @@ def ingest(rebuild: bool = False, source: str | Path | None = None) -> dict[str,
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Split knowledge documents and write them into Milvus."
+        description="Split knowledge documents and write them into Milvus.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
         "--rebuild",
@@ -48,7 +56,10 @@ def main() -> int:
     parser.add_argument(
         "--source",
         default=None,
-        help="Knowledge file or directory to ingest. Defaults to KNOWLEDGE_FILE.",
+        help=(
+            "Knowledge file or directory to ingest. Defaults to the parsed document "
+            "directory when omitted."
+        ),
     )
     args = parser.parse_args()
 
@@ -56,6 +67,10 @@ def main() -> int:
     for key, value in result.items():
         print(f"{key}: {value}")
     return 0
+
+
+def _default_ingest_source(config: RagConfig) -> Path:
+    return config.mineru_output_dir
 
 
 if __name__ == "__main__":

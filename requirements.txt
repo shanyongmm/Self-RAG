@@ -11,6 +11,9 @@ python-dotenv
 pydantic
 dashscope
 mineru-open-sdk
+# 可选：联网检索兜底（不装时该功能静默降级为“知识库未覆盖”）：
+# langchain-tavily
+
 # PyCharm 2023.2 helper still imports pkg_resources from setuptools.
 setuptools<81
 wheel

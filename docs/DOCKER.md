@@ -1,113 +1,112 @@
-# Docker Deployment
+# Docker：Milvus + PostgreSQL 基础设施
 
-## Services
+`docker-compose.yml` 只编排数据基础设施，共四个容器，全部位于同一个
+桥接网络 `self_rag_net` 上，单机多容器由 docker compose 统一管理：
 
-`docker-compose.yml` defines five services:
-
-| Service | Responsibility | Exposed port |
+| 服务 | 职责 | 对外端口 |
 | --- | --- | --- |
-| `app` | FastAPI and Self/Corrective RAG Agent | `8001` |
-| `postgres` | LangGraph checkpoint and short-term memory | internal |
-| `milvus` | Vector search | `19530`, `9091` |
-| `etcd` | Milvus metadata storage | internal |
-| `minio` | Milvus object storage | internal |
+| `postgres` | LangGraph checkpoint / 短期记忆 | `5432` |
+| `milvus` | Milvus standalone，向量检索 | `19530` |
+| `etcd` | Milvus 元数据存储 | 容器内 |
+| `minio` | Milvus 对象存储 | 容器内 |
 
-The application connects to service names inside the Compose network:
+容器之间通过服务名（`etcd:2379`、`minio:9000`）互相访问；只有
+PostgreSQL 和 Milvus 暴露到本机，供在 PyCharm / 虚拟环境里本地运行的
+RAG 应用连接。
+
+RAG 应用**不在容器中运行**，因此：
 
 ```text
-MILVUS_URL=http://milvus:19530
-POSTGRES_URI=postgresql://...@postgres:5432/self_rag
+MILVUS_URL=http://localhost:19530
+POSTGRES_URI=postgresql://self_rag:self_rag@localhost:5432/self_rag?sslmode=disable
 ```
 
-These values are injected by Compose and override local `localhost` values from
-`.env`.
+保持 `.env` 里的 localhost 连接串即可，无需改成容器地址。
 
-## First Run
+## 启动
 
 ```powershell
-Copy-Item .env.example .env
-# Fill in the LLM and embedding credentials in .env.
-docker compose up -d --build
+Copy-Item .env.example .env   # 首次，并填好 LLM / Embedding 密钥
+docker compose up -d
+docker compose ps             # 等待 postgres、etcd、minio、milvus 均 healthy
+```
+
+Milvus 依赖 etcd 和 MinIO，首次启动比 PostgreSQL 慢，属正常现象：
+
+```powershell
+docker compose logs -f milvus
+```
+
+## 本地运行 RAG 应用
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements-dev.txt
+
+# 首次或知识库变更后，重建 collection：
+python -m scripts.ingest --rebuild
+
+uvicorn main:app --host 127.0.0.1 --port 8001 --reload
+```
+
+应用启动时会自动连接 PostgreSQL 并执行 `checkpointer.setup()`
+（`app/rag_starter.py`），自动创建 LangGraph checkpoint 表。
+
+## 常用命令
+
+```powershell
+# 查看各容器健康状态
 docker compose ps
-docker compose logs -f app
-```
 
-The application image runs `python -m scripts.bootstrap` before Uvicorn starts.
-The bootstrap process:
-
-1. Retries PostgreSQL checkpoint setup until the database is ready.
-2. Checks whether the configured Milvus collection exists.
-3. Ingests the knowledge base only when the collection is missing.
-4. Starts the API process.
-
-This makes container restarts idempotent and avoids rebuilding the collection
-on every restart.
-
-## Useful Commands
-
-```powershell
-# Rebuild only the application image
-docker compose build app
-
-# Follow all service logs
+# 查看全部日志
 docker compose logs -f
 
-# Run a shell command inside the application image
-docker compose run --rm app python -m evaluation.run_eval --help
+# 单独重启某个服务
+docker compose restart milvus
 
-# Rebuild the vector collection after changing the knowledge base
-docker compose run --rm app python -m scripts.ingest --rebuild
-
-# Stop containers and keep named volumes
+# 停止容器，保留数据卷
 docker compose down
 
-# Stop containers and remove all named volumes
+# 停止并删除所有数据卷（清空向量库与会话，仅用于重置环境）
 docker compose down -v
 ```
 
-## Configuration
+## 配置
 
-`AUTO_INGEST=true` is the default. It performs the first knowledge-base import
-when the Milvus collection does not exist. Set it to `false` when you want to
-start the API without importing data:
+默认凭据来自 `.env`，未设置时回退到 `.env.example` 里的开发默认值：
 
-```env
-AUTO_INGEST=false
-```
+| 变量 | 默认 |
+| --- | --- |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | `self_rag` |
+| `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` | `minioadmin` |
 
-The default PostgreSQL and MinIO credentials in `.env.example` are intended only
-for local demonstrations. Replace them before deploying outside a local
-interview/demo environment.
+这些默认值只适合本地开发，部署到非本地环境前必须替换。修改凭据后记得
+同步更新 `.env` 中的 `POSTGRES_URI`。
 
-## Troubleshooting
+## 故障排查
 
-### The app keeps restarting
+### PostgreSQL 连接被拒
 
-Check the application log:
+确认 postgres 容器健康，且本机 5432 没有被其它进程占用：
 
 ```powershell
-docker compose logs --tail=200 app
+docker compose ps
+netstat -ano | findstr :5432
 ```
 
-Typical causes are missing LLM/embedding keys or an unavailable external model
-endpoint.
+### Milvus 长时间未 healthy
 
-### Milvus is still starting
-
-Milvus depends on etcd and MinIO and can take longer than PostgreSQL on the
-first run. Check all health states:
+Milvus 要等 etcd 和 MinIO 先就绪：
 
 ```powershell
 docker compose ps
 docker compose logs --tail=200 milvus
 ```
 
-### Reset everything
-
-Use the following only when you want to discard all local vector and checkpoint
-data:
+### 重置环境
 
 ```powershell
 docker compose down -v
-docker compose up -d --build
+docker compose up -d
+python -m scripts.ingest --rebuild
 ```
