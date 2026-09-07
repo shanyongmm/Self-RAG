@@ -15,9 +15,14 @@ class RagConfig(BaseModel):
     milvus_url: str = "http://localhost:19530"
     db_name: str | None = None
     collection_name: str = "docs"
+    partition_config: Path | None = None
 
     postgres_uri: str | None = Field(default=None, repr=False)
+    postgres_connect_timeout: int = Field(default=5, ge=1)
     default_thread_id: str = "default"
+
+    auth_token_secret: str = Field(default="", repr=False)
+    auth_token_ttl_hours: int = Field(default=24, ge=1)
 
     embed_model_name: str
     embed_api_key: str = Field(repr=False)
@@ -39,6 +44,19 @@ class RagConfig(BaseModel):
 
     chunk_size: int = Field(default=200, ge=50)
     chunk_overlap: int = Field(default=80, ge=0)
+
+    mem0_enabled: bool = Field(default=False)
+    mem0_collection_name: str = Field(default="mem0_memories")
+    mem0_top_k: int = Field(default=3, ge=1, le=10)
+    mem0_history_db_path: Path | None = Field(default=None)
+    mem0_milvus_db_name: str | None = Field(default=None, description="留空用 Milvus default DB")
+
+    tavily_api_key: str = Field(default="", repr=False)
+    tavily_allowed_domains: list[str] = Field(
+        default_factory=list,
+        description="联网检索只允许命中的可信域名(医疗场景建议限制),留空不限",
+    )
+
 
 
 def _env(*names: str, default: str | None = None) -> str | None:
@@ -62,6 +80,13 @@ def _int_env(*names: str, default: int) -> int:
     return default if value is None else int(value)
 
 
+def _list_env(*names: str, sep: str = ",") -> list[str]:
+    value = _env(*names)
+    if not value:
+        return []
+    return [item.strip() for item in value.split(sep) if item.strip()]
+
+
 def _float_env(*names: str, default: float) -> float:
     value = _env(*names)
     return default if value is None else float(value)
@@ -72,6 +97,17 @@ def _resolve_path(project_root: Path, value: str) -> Path:
     if not path.is_absolute():
         path = project_root / path
     return path
+
+
+_PARTITION_OFF_VALUES = {"", "none", "off", "false", "0", "disable"}
+
+
+def _resolve_partition_config(project_root: Path, raw: str | None) -> Path | None:
+    if raw is None:
+        return None
+    if raw.strip().lower() in _PARTITION_OFF_VALUES:
+        return None
+    return _resolve_path(project_root, raw)
 
 
 @lru_cache(maxsize=1)
@@ -99,8 +135,14 @@ def get_config() -> RagConfig:
         collection_name=_env(
             "COL_NAME", "MILVUS_COLLECTION", "COLLECTION_NAME", default="docs"
         ),
+        partition_config=_resolve_partition_config(
+            project_root, _env("PARTITION_CONFIG")
+        ),
         postgres_uri=_env("POSTGRES_URI", "POSTGRES_DSN", "DATABASE_URL"),
+        postgres_connect_timeout=_int_env("POSTGRES_CONNECT_TIMEOUT", default=5),
         default_thread_id=_env("RAG_DEFAULT_THREAD_ID", default="default") or "default",
+        auth_token_secret=_env("AUTH_TOKEN_SECRET", default="") or "",
+        auth_token_ttl_hours=_int_env("AUTH_TOKEN_TTL_HOURS", default=24),
         embed_model_name=_required_env("EMBED_MODEL_NAME", "EMBEDDING_MODEL"),
         embed_api_key=_required_env("DASHSCOPE_API_KEY", "EMBED_API_KEY"),
         embed_dimension=_int_env("EMBED_DIMENSION", "EMBED_DIE", default=1024),
@@ -121,5 +163,16 @@ def get_config() -> RagConfig:
         max_retries=_int_env("RAG_MAX_RETRIES", "RAG_MAX_ITERATIONS", default=3),
         relevance_threshold=_float_env("RAG_RELEVANCE_THRESHOLD", default=0.5),
         chunk_size=_int_env("RAG_CHUNK_SIZE", "CHUNK_SIZE", default=200),
-        chunk_overlap=_int_env("RAG_CHUNK_OVERLAP", "CHUNK_OVERLAP", default=80),
+        chunk_overlap=_int_env(
+            "RAG_CHUNK_OVERLAP", "CHUNK_OVERLAP", default=80
+        ),
+        mem0_enabled=_env("MEM0_ENABLED", default="false") not in {"", "0", "false", "off", "no"},
+        mem0_collection_name=_env("MEM0_COLLECTION_NAME", default="mem0_memories") or "mem0_memories",
+        mem0_top_k=_int_env("MEM0_TOP_K", default=3),
+        mem0_history_db_path=_resolve_path(project_root, _env("MEM0_HISTORY_DB_PATH", default="data/mem0/history.db")),
+        mem0_milvus_db_name=_env("MEM0_MILVUS_DB_NAME") or None,
+        tavily_api_key=_env("TAVILY_API_KEY", default="") or "",
+        tavily_allowed_domains=_list_env("TAVILY_ALLOWED_DOMAINS"),
     )
+
+

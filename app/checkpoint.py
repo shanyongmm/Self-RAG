@@ -5,7 +5,7 @@ from contextlib import contextmanager
 
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-from psycopg import Connection
+from psycopg import Connection, OperationalError
 from psycopg.rows import dict_row
 
 from app.schemas import (
@@ -26,13 +26,25 @@ ALLOWED_CHECKPOINT_TYPES = (
 
 
 @contextmanager
-def postgres_checkpointer_from_uri(postgres_uri: str) -> Iterator[PostgresSaver]:
-    conn = Connection.connect(
-        postgres_uri,
-        autocommit=True,
-        prepare_threshold=0,
-        row_factory=dict_row,
-    )
+def postgres_checkpointer_from_uri(
+    postgres_uri: str,
+    *,
+    connect_timeout: int = 5,
+) -> Iterator[PostgresSaver]:
+    try:
+        conn = Connection.connect(
+            postgres_uri,
+            autocommit=True,
+            prepare_threshold=0,
+            row_factory=dict_row,
+            connect_timeout=connect_timeout,
+        )
+    except OperationalError as exc:
+        raise RuntimeError(
+            "PostgreSQL checkpoint service is required for persistent short-term "
+            "memory, but it is not reachable. Start PostgreSQL or fix POSTGRES_URI."
+        ) from exc
+
     try:
         yield PostgresSaver(
             conn,
@@ -42,3 +54,4 @@ def postgres_checkpointer_from_uri(postgres_uri: str) -> Iterator[PostgresSaver]
         )
     finally:
         conn.close()
+

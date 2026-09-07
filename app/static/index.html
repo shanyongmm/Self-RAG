@@ -25,7 +25,7 @@
 
       .chat {
         display: grid;
-        grid-template-rows: 1fr auto;
+        grid-template-rows: auto 1fr auto;
         min-height: 100vh;
         max-width: 860px;
         margin: 0 auto;
@@ -64,6 +64,69 @@
 
       .answer-text {
         margin-bottom: 10px;
+        white-space: normal;
+        line-height: 1.65;
+      }
+
+      .answer-text .ans-head {
+        margin: 6px 0;
+      }
+
+      .answer-text a {
+        color: #1d4ed8;
+      }
+
+      .answer-text a:hover {
+        text-decoration: underline;
+      }
+
+      .evidence-note {
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+        margin: 0 0 10px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .evidence-note.web {
+        background: #fff8e6;
+        border: 1px solid #f2d27d;
+        color: #7a5600;
+      }
+
+      .evidence-note.uncovered {
+        background: #f1f3f6;
+        border: 1px solid #d8dde6;
+        color: #475569;
+      }
+
+      .evidence-note .note-title {
+        flex: none;
+        font-weight: 700;
+      }
+
+      .source-title a {
+        color: #1d4ed8;
+        text-decoration: none;
+      }
+
+      .source-title a:hover {
+        text-decoration: underline;
+      }
+
+      .pill.source-web {
+        border-color: #f2d27d;
+        background: #fff8e6;
+        color: #7a5600;
+      }
+
+      .pill.source-uncovered {
+        border-color: #d8dde6;
+        background: #f1f3f6;
+        color: #64748b;
       }
 
       .meta-row {
@@ -146,6 +209,73 @@
         background: #ffffff;
       }
 
+      .identity {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border: 1px solid #d8dde6;
+        border-radius: 8px;
+        background: #ffffff;
+      }
+
+      .identity .who {
+        margin-right: auto;
+        color: #475569;
+        font-size: 13px;
+        font-weight: 650;
+      }
+
+      .identity .auth-form {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+
+      .identity input {
+        flex: 1 1 130px;
+        max-width: 200px;
+        min-width: 0;
+        height: 36px;
+        padding: 0 10px;
+        border: 1px solid #d8dde6;
+        border-radius: 8px;
+        background: #ffffff;
+        font: inherit;
+        font-size: 13px;
+        outline: none;
+      }
+
+      .identity input:focus {
+        border-color: #1d4ed8;
+      }
+
+      .identity button {
+        width: auto;
+        height: 36px;
+        padding: 0 12px;
+        white-space: nowrap;
+      }
+
+      .identity button.ghost {
+        background: transparent;
+        border: 1px solid #d8dde6;
+        color: #334155;
+      }
+
+      .identity button.ghost:hover {
+        background: #f1f5f9;
+      }
+
+      .identity .err {
+        flex-basis: 100%;
+        color: #b91c1c;
+        font-size: 13px;
+      }
+
       textarea {
         min-height: 44px;
         max-height: 160px;
@@ -175,6 +305,7 @@
   </head>
   <body>
     <main class="chat">
+      <header class="identity" id="identity"></header>
       <section class="messages" id="messages" aria-live="polite"></section>
       <form class="composer" id="chat-form">
         <textarea
@@ -199,6 +330,130 @@
         (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`);
       localStorage.setItem(threadIdKey, threadId);
 
+      const tokenKey = "self-rag-auth-token";
+      const userKey = "self-rag-auth-user";
+      const identity = document.querySelector("#identity");
+      let authMode = "login";
+      let authBusy = false;
+      let authErrorMsg = "";
+
+      function storedUser() {
+        const token = localStorage.getItem(tokenKey);
+        const username = localStorage.getItem(userKey);
+        return token && username ? { token, username } : null;
+      }
+
+      function renderIdentity() {
+        const user = storedUser();
+        identity.replaceChildren();
+        const who = document.createElement("span");
+        who.className = "who";
+        if (user) {
+          who.textContent = `已登录：${user.username}`;
+          identity.appendChild(who);
+          const logoutBtn = document.createElement("button");
+          logoutBtn.type = "button";
+          logoutBtn.className = "ghost";
+          logoutBtn.textContent = "退出登录";
+          logoutBtn.addEventListener("click", () => {
+            localStorage.removeItem(tokenKey);
+            localStorage.removeItem(userKey);
+            authMode = "login";
+            authErrorMsg = "";
+            renderIdentity();
+          });
+          identity.appendChild(logoutBtn);
+          return;
+        }
+
+        who.textContent = "匿名会话 · 登录后可按用户隔离";
+        identity.appendChild(who);
+
+        const form = document.createElement("form");
+        form.className = "auth-form";
+        const username = document.createElement("input");
+        username.placeholder = "用户名";
+        username.autocomplete = "username";
+        username.maxLength = 32;
+        const password = document.createElement("input");
+        password.type = "password";
+        password.placeholder = authMode === "register" ? "密码（至少 6 位）" : "密码";
+        password.autocomplete =
+          authMode === "register" ? "new-password" : "current-password";
+        const submit = document.createElement("button");
+        submit.type = "submit";
+        submit.textContent = authMode === "register" ? "注册" : "登录";
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "ghost";
+        toggle.textContent = authMode === "register" ? "已有账号？登录" : "注册新账号";
+        toggle.addEventListener("click", () => {
+          authMode = authMode === "register" ? "login" : "register";
+          authErrorMsg = "";
+          renderIdentity();
+        });
+
+        form.append(username, password, submit, toggle);
+        form.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          if (authBusy) return;
+          const name = username.value.trim();
+          const passwordValue = password.value;
+          if (!name) {
+            username.focus();
+            return;
+          }
+          if (authMode === "register" && passwordValue.length < 6) {
+            authErrorMsg = "密码至少 6 位";
+            renderIdentity();
+            return;
+          }
+          authBusy = true;
+          submit.disabled = true;
+          try {
+            await authenticate(authMode, name, passwordValue);
+            authMode = "login";
+            authErrorMsg = "";
+            renderIdentity();
+          } catch (error) {
+            authBusy = false;
+            authErrorMsg = error.message || "操作失败";
+            renderIdentity();
+          }
+        });
+        identity.appendChild(form);
+
+        if (authErrorMsg) {
+          const err = document.createElement("span");
+          err.className = "err";
+          err.textContent = authErrorMsg;
+          identity.appendChild(err);
+        }
+      }
+
+      async function authenticate(mode, username, password) {
+        const response = await fetch(`/auth/${mode}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password }),
+        });
+        let data = {};
+        try {
+          data = await response.json();
+        } catch (_) {
+          // non-JSON error body
+        }
+        if (!response.ok) {
+          throw new Error(
+            data.detail || (mode === "register" ? "注册失败" : "登录失败")
+          );
+        }
+        localStorage.setItem(tokenKey, data.token);
+        localStorage.setItem(userKey, data.username);
+      }
+
+      renderIdentity();
+
       function addMessage(text, role) {
         const item = document.createElement("div");
         item.className = `message ${role}`;
@@ -211,18 +466,32 @@
       function renderAssistantMessage(item, data) {
         item.replaceChildren();
 
+        const note = evidenceNote(data);
+        if (note) item.appendChild(note);
+
         const answer = document.createElement("div");
         answer.className = "answer-text";
-        answer.textContent = data.answer || "没有返回答案";
+        answer.innerHTML = formatAnswer(data.answer || "没有返回答案");
         item.appendChild(answer);
 
         const meta = document.createElement("div");
         meta.className = "meta-row";
+        const sourceKey = answerSourceKey(data);
+        addPill(meta, sourcePillText(data), `source-${sourceKey}`);
         addPill(meta, data.mode || "self_rag");
         addPill(meta, `迭代 ${data.retry_count ?? 0}`);
-        addPill(meta, data.is_answerable ? "可回答" : "未确认可回答");
+        const answerable =
+          sourceKey === "uncovered"
+            ? "不可回答"
+            : data.is_answerable
+              ? "可回答"
+              : "未确认可回答";
+        addPill(meta, answerable);
         if (data.citations?.length) {
-          addPill(meta, `引用 ${data.citations.join(", ")}`);
+          const shown = data.citations.map((citation) =>
+            /^https?:\/\//.test(citation) ? prettySource(citation) : citation,
+          );
+          addPill(meta, `引用 ${shown.join(", ")}`);
         }
         item.appendChild(meta);
 
@@ -239,11 +508,131 @@
         messages.scrollTop = messages.scrollHeight;
       }
 
-      function addPill(parent, text) {
+      function addPill(parent, text, className) {
         const pill = document.createElement("span");
-        pill.className = "pill";
+        pill.className = className ? `pill ${className}` : "pill";
         pill.textContent = text;
         parent.appendChild(pill);
+      }
+
+      function answerSourceKey(data) {
+        if (data?.answer_source === "web") return "web";
+        if (data?.answer_source === "uncovered") return "uncovered";
+        return "local";
+      }
+
+      function sourcePillText(data) {
+        if (data?.answer_source === "web") return "来源：联网检索（仅供参考）";
+        if (data?.answer_source === "uncovered") return "来源：知识库未覆盖";
+        return "来源：本地知识库";
+      }
+
+      function evidenceNote(data) {
+        if (!data) return null;
+        if (data.answer_source === "web") {
+          const note = document.createElement("div");
+          note.className = "evidence-note web";
+          const title = document.createElement("span");
+          title.className = "note-title";
+          title.textContent = "联网检索";
+          const body = document.createElement("span");
+          body.textContent =
+            "本地部署知识库未检索到与该问题直接相关的片段，以下内容由联网公开信息检索整理，仅供参考，请谨慎核验，不构成诊疗或政策建议。";
+          note.append(title, body);
+          return note;
+        }
+        if (data.answer_source === "uncovered") {
+          const note = document.createElement("div");
+          note.className = "evidence-note uncovered";
+          const title = document.createElement("span");
+          title.className = "note-title";
+          title.textContent = "未能回答";
+          const body = document.createElement("span");
+          body.textContent =
+            "本地知识库与联网公开信息均未检索到足以支撑回答该问题的资料，未能可靠作答。";
+          note.append(title, body);
+          return note;
+        }
+        return null;
+      }
+
+      function escapeHtml(value) {
+        return String(value).replace(
+          /[&<>"']/g,
+          (c) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            })[c],
+        );
+      }
+
+      function linkify(text) {
+        return text.replace(
+          /(https?:\/\/[^\s<>"']+)/g,
+          '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>',
+        );
+      }
+
+      function formatAnswer(text) {
+        const lines = escapeHtml(text || "").split(/\n/);
+        let html = "";
+        let inList = false;
+        const closeList = () => {
+          if (inList) {
+            html += "</div>";
+            inList = false;
+          }
+        };
+        for (const rawLine of lines) {
+          const line = rawLine.trim();
+          if (!line) {
+            closeList();
+            continue;
+          }
+          const heading = line.match(/^#{1,4}\s+(.+)$/);
+          if (heading) {
+            closeList();
+            html += `<div class="ans-head"><strong>${linkify(heading[1])}</strong></div>`;
+            continue;
+          }
+          const bullet = line.match(/^[-*•]\s+(.+)$/);
+          if (bullet) {
+            if (!inList) {
+              html += '<div class="ans-list">';
+              inList = true;
+            }
+            const content = bullet[1].replace(
+              /\*\*([^*]+)\*\*/g,
+              "<strong>$1</strong>",
+            );
+            html += `<div>${linkify(content)}</div>`;
+            continue;
+          }
+          closeList();
+          const inline = rawLine.replace(
+            /\*\*([^*]+)\*\*/g,
+            "<strong>$1</strong>",
+          );
+          html += `<div>${linkify(inline)}</div>`;
+        }
+        closeList();
+        return html;
+      }
+
+      function prettySource(text) {
+        try {
+          const url = new URL(text);
+          return (
+            url.hostname.replace(/^www\./, "") +
+            url.pathname.replace(/\/$/, "")
+          );
+        } catch (_) {
+          return text;
+        }
       }
 
       function renderSources(title, sources) {
@@ -260,7 +649,24 @@
 
           const heading = document.createElement("div");
           heading.className = "source-title";
-          heading.textContent = sourceTitle(source);
+          const linkUrl =
+            (typeof source.source === "string" &&
+              /^https?:\/\//.test(source.source) &&
+              source.source) ||
+            (typeof source.chunk_id === "string" &&
+              /^https?:\/\//.test(source.chunk_id) &&
+              source.chunk_id) ||
+            null;
+          if (linkUrl) {
+            const anchor = document.createElement("a");
+            anchor.href = linkUrl;
+            anchor.target = "_blank";
+            anchor.rel = "noopener noreferrer";
+            anchor.textContent = sourceTitle(source);
+            heading.appendChild(anchor);
+          } else {
+            heading.textContent = sourceTitle(source);
+          }
           item.appendChild(heading);
 
           const snippet = document.createElement("div");
@@ -336,11 +742,38 @@
             `理由：${step.reason || ""}`,
           ];
         }
+        if (step.step === "memory_prepare") {
+          return [
+            `分区：${step.partition_id || "无"}`,
+            `是否为追问：${step.is_follow_up ? "是" : "否"}`,
+          ];
+        }
         if (step.step === "generate") {
           return [
+            `证据来源：${step.evidence_origin === "web" ? "联网检索" : "本地知识库"}`,
             `引用：${(step.citations || []).join(", ") || "无"}`,
             `最终片段：${idsFromSources(step.final_sources).join(", ") || "无"}`,
             step.missing_info ? `缺失信息：${step.missing_info}` : "缺失信息：无",
+          ];
+        }
+        if (step.step === "web_search") {
+          const urls = (step.retrieved_sources || [])
+            .map((source) => source?.source || source?.chunk_id)
+            .filter((value) => typeof value === "string" && value);
+          return [
+            `查询：${step.query || ""}`,
+            urls.length
+              ? `命中 ${urls.length} 条：`
+              : step.configured === false
+                ? "未配置 TAVILY_API_KEY，跳过联网检索"
+                : "联网检索未命中可引用片段",
+            ...urls.map((url) => prettySource(url)),
+          ];
+        }
+        if (step.step === "coverage") {
+          return [
+            `缺失信息：${step.missing_info || ""}`,
+            "本地与联网均未找到可支撑回答的资料",
           ];
         }
         return Object.entries(step).map(([key, value]) => `${key}：${stringify(value)}`);
@@ -351,7 +784,16 @@
         if (source.rank !== undefined && source.rank !== null) {
           parts.push(`#${source.rank}`);
         }
-        if (source.chunk_id !== undefined && source.chunk_id !== null) {
+        const metaTitle = source?.metadata?.title;
+        if (metaTitle) {
+          parts.push(truncate(String(metaTitle).replace(/\s+/g, " ").trim(), 46));
+        }
+        const url =
+          (typeof source.source === "string" && source.source) ||
+          (typeof source.chunk_id === "string" && source.chunk_id);
+        if (url && /^https?:\/\//.test(url)) {
+          parts.push(prettySource(url));
+        } else if (source.chunk_id !== undefined && source.chunk_id !== null) {
           parts.push(`chunk ${source.chunk_id}`);
         }
         if (source.score !== undefined && source.score !== null) {
@@ -369,11 +811,14 @@
 
       function stepLabel(step) {
         const labels = {
+          memory_prepare: "上下文记忆",
           retrieve: "检索",
           grade: "评分",
           decide: "决策",
           rewrite: "改写",
+          web_search: "联网检索",
           generate: "生成",
+          coverage: "收尾（未覆盖）",
         };
         return labels[step] || step || "步骤";
       }
@@ -405,12 +850,21 @@
         const pending = addMessage("正在思考...", "assistant");
 
         try {
+          const headers = { "Content-Type": "application/json" };
+          const auth = storedUser();
+          if (auth) headers.Authorization = `Bearer ${auth.token}`;
           const response = await fetch("/ask", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers,
             body: JSON.stringify({ question, thread_id: threadId }),
           });
           const data = await response.json();
+          if (response.status === 401) {
+            localStorage.removeItem(tokenKey);
+            localStorage.removeItem(userKey);
+            renderIdentity();
+            throw new Error(data.detail || "登录已失效，请重新登录");
+          }
           if (!response.ok) {
             throw new Error(data.detail || "请求失败");
           }

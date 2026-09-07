@@ -1,0 +1,136 @@
+{
+  "version": 1,
+  "description": "Knowledge partition configuration for the Self-RAG medical knowledge base.",
+  "default_partition": "diagnosis",
+  "partitions": [
+    {
+      "id": "diagnosis",
+      "name": "医疗诊断分区",
+      "collection_name": "medical_knowledge_base",
+      "scope": "疾病诊断、治疗原则、慢病管理、转诊标准、临床指南、诊疗路径。",
+      "route_keywords": [
+        "诊断",
+        "症状",
+        "治疗",
+        "指南",
+        "并发症",
+        "筛查",
+        "转诊",
+        "高血压",
+        "糖尿病"
+      ],
+      "metadata_template": {
+        "partition_id": "diagnosis",
+        "domain": "medical",
+        "source_type": "clinical_guideline",
+        "doc_title": "",
+        "source_url": "",
+        "published_date": "",
+        "effective_date": "",
+        "section_title": ""
+      },
+      "recommended_sources": [
+        {
+          "title": "国家基层高血压防治管理指南2025版",
+          "source": "国家心血管病中心/中华心血管病杂志",
+          "download_url": "https://www.hnysfww.com/data/article/1758327573527813381.pdf",
+          "source_page": "https://hbp-office.nccd.org.cn/download.html"
+        },
+        {
+          "title": "国家基层糖尿病防治管理指南（2022）",
+          "source": "中华内科杂志/湖南药事服务网转载下载",
+          "download_url": "https://www.hnysfww.com/data/article/1647557424677414104.pdf",
+          "source_page": "https://www.jctnb.org.cn/home/GuideDownload/index"
+        }
+      ],
+      "partition_name": "diagnosis"
+    },
+    {
+      "id": "device",
+      "name": "医疗设备分区",
+      "collection_name": "medical_knowledge_base",
+      "scope": "医疗器械、医用设备、设备分类、UDI唯一标识、注册审评、设备操作与监管文件。",
+      "route_keywords": [
+        "医疗器械",
+        "医疗设备",
+        "设备",
+        "器械",
+        "UDI",
+        "注册",
+        "分类目录",
+        "监护",
+        "影像",
+        "检验设备"
+      ],
+      "metadata_template": {
+        "partition_id": "device",
+        "domain": "medical",
+        "source_type": "medical_device",
+        "doc_title": "",
+        "source_url": "",
+        "published_date": "",
+        "effective_date": "",
+        "section_title": ""
+      },
+      "recommended_sources": [
+        {
+          "title": "医疗器械唯一标识数据库数据下载",
+          "source": "国家药品监督管理局",
+          "download_url": "https://udi.nmpa.gov.cn/download.html",
+          "source_page": "https://udi.nmpa.gov.cn/download.html"
+        },
+        {
+          "title": "医疗器械分类目录动态调整工作程序（2026年第53号公告附件）",
+          "source": "国家药品监督管理局/上海市药品监督管理局转载",
+          "download_url": "https://yjj.sh.gov.cn/cmsres/bb/bb5a3c9a7405472ab06dd0a97dd73530/35a7fd076e5c2be536b12a18019c9fb7.doc",
+          "source_page": "https://www.nmpa.gov.cn/xxgk/ggtg/ylqxggtg/ylqxqtggtg/20260601173941178.html"
+        }
+      ],
+      "partition_name": "device"
+    },
+    {
+      "id": "medication",
+      "name": "药品用药分区",
+      "collection_name": "medical_knowledge_base",
+      "scope": "药品目录、基本药物、处方与合理用药、药物剂型规格、禁忌、不良反应、药品政策。",
+      "route_keywords": [
+        "药品",
+        "药物",
+        "用药",
+        "基本药物",
+        "剂型",
+        "规格",
+        "处方",
+        "禁忌",
+        "不良反应",
+        "抗菌药"
+      ],
+      "metadata_template": {
+        "partition_id": "medication",
+        "domain": "medical",
+        "source_type": "medication_catalog",
+        "doc_title": "",
+        "source_url": "",
+        "published_date": "",
+        "effective_date": "",
+        "section_title": ""
+      },
+      "recommended_sources": [
+        {
+          "title": "国家基本药物目录（2026年版）",
+          "source": "国家卫生健康委、国家中医药局、国家疾控局",
+          "download_url": "https://www.nhc.gov.cn/yaozs/c100098/202607/0f4f2bdcfead449f8412453373522470/files/%E5%9B%BD%E5%AE%B6%E5%9F%BA%E6%9C%AC%E8%8D%AF%E7%89%A9%E7%9B%AE%E5%BD%95%EF%BC%882026%E5%B9%B4%E7%89%88%EF%BC%89.pdf",
+          "source_page": "https://www.nhc.gov.cn/yaozs/c100098/202607/0f4f2bdcfead449f8412453373522470.shtml"
+        },
+        {
+          "title": "国家基本药物目录-2018年版",
+          "source": "国家卫生健康委员会",
+          "download_url": "http://www.nhc.gov.cn/ewebeditor/uploadfile/2018/10/20181025183346942.pdf",
+          "source_page": "https://www.nhc.gov.cn/wjw/jbywml/201810/8b68d28bd3754898b339e06da8c7d907.shtml"
+        }
+      ],
+      "partition_name": "medication"
+    }
+  ],
+  "milvus_collection_name": "medical_knowledge_base"
+}

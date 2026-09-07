@@ -21,7 +21,9 @@ class NaiveRagBaseline:
         self.config = config or get_config()
         self.vectorstore = vectorstore or MilvusVectorStore(config=self.config)
         self.llm = llm or create_chat_model(self.config)
-        self.generate_llm = self.llm.with_structured_output(RagGeneration)
+        self.generate_llm = self.llm.with_structured_output(
+            RagGeneration, method="function_calling"
+        )
 
     def ask(self, question: str, top_k: int | None = None) -> dict[str, Any]:
         if not self.vectorstore.has_collection():
@@ -41,6 +43,8 @@ class NaiveRagBaseline:
 
         return {
             "mode": "naive_rag",
+            "answer_source": "local",
+            "uncovered": False,
             "question": question,
             "answer": answer.answer,
             "is_answerable": answer.is_answerable,
